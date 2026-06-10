@@ -17,6 +17,8 @@ ROLLING_RATE = 0.16
 INITIAL_GOALS = 1.25
 INITIAL_POINTS = 1.3
 ELO_HOME_ADVANTAGE = 65.0
+TOURNAMENT_HOSTS = {"United States", "Canada", "Mexico"}
+HOST_ELO_BONUS = 45.0
 
 MATCH_FEATURES = [
     "home_elo",
@@ -186,13 +188,48 @@ def backtest_goal_ensemble(
     from scipy.stats import poisson
 
     records = []
-    for year in (2018, 2022):
-        cutoff = pd.Timestamp(f"{year}-06-01")
+    validation_events = [
+        ("2016 Euro/Copa", "2016-06-01", "2016-12-31", {"UEFA Euro", "Copa América"}),
+        ("2018 World Cup", "2018-06-01", "2018-12-31", {"FIFA World Cup"}),
+        (
+            "2019 continental",
+            "2019-01-01",
+            "2019-12-31",
+            {"AFC Asian Cup", "African Cup of Nations", "Copa América", "Gold Cup"},
+        ),
+        ("2021 Euro/Copa", "2021-06-01", "2021-12-31", {"UEFA Euro", "Copa América"}),
+        (
+            "2022 AFCON",
+            "2022-01-01",
+            "2022-03-01",
+            {"African Cup of Nations"},
+        ),
+        ("2022 World Cup", "2022-11-01", "2022-12-31", {"FIFA World Cup"}),
+        (
+            "2024 winter cups",
+            "2024-01-01",
+            "2024-04-01",
+            {"AFC Asian Cup", "African Cup of Nations"},
+        ),
+        ("2024 Euro/Copa", "2024-06-01", "2024-12-31", {"UEFA Euro", "Copa América"}),
+        (
+            "2025 AFCON",
+            "2025-12-01",
+            "2026-03-01",
+            {"African Cup of Nations"},
+        ),
+    ]
+    for event_name, cutoff_text, end_text, tournaments in validation_events:
+        cutoff = pd.Timestamp(cutoff_text)
+        end_date = pd.Timestamp(end_text)
         training_matches = results[results["date"] < cutoff]
         test_matches = results[
-            (results["date"].dt.year == year)
-            & results["tournament"].str.fullmatch("FIFA World Cup", na=False)
+            (results["date"] >= cutoff)
+            & (results["date"] <= end_date)
+            & results["tournament"].isin(tournaments)
         ]
+        if test_matches.empty:
+            continue
         training_rows, states = build_rolling_features(
             training_matches, importance_function
         )
@@ -284,7 +321,7 @@ def backtest_goal_ensemble(
                             score_points += 10
                     records.append(
                         {
-                            "year": year,
+                            "validation_event": event_name,
                             "gradient_weight": gradient_blend,
                             "outcome_weight": outcome_blend,
                             "score_points": score_points,
@@ -297,7 +334,10 @@ def backtest_goal_ensemble(
                     )
     return (
         pd.DataFrame(records)
-        .groupby(["year", "gradient_weight", "outcome_weight"], as_index=False)
+        .groupby(
+            ["validation_event", "gradient_weight", "outcome_weight"],
+            as_index=False,
+        )
         .agg(
             matches=("total_points", "size"),
             mean_score_points=("score_points", "mean"),
@@ -367,10 +407,14 @@ class MatchEnsemble:
         away_state = TeamState(**vars(away_state))
         home_state.elo = self.current_elo.get(home, home_state.elo)
         away_state.elo = self.current_elo.get(away, away_state.elo)
+        if home in TOURNAMENT_HOSTS:
+            home_state.elo += HOST_ELO_BONUS
+        if away in TOURNAMENT_HOSTS:
+            away_state.elo += HOST_ELO_BONUS
         row = _state_features(home_state, away_state, True, 3.0)
         return pd.DataFrame([row], columns=MATCH_FEATURES)
 
-    def predict_match(self, team_a: str, team_b: str) -> dict[str, float]:
+    def predict_core(self, team_a: str, team_b: str) -> dict[str, float]:
         features = self._future_features(team_a, team_b)
         poisson_home, poisson_away = self.poisson_model.expected_goals(team_a, team_b)
         gradient_home = float(self.home_goal_model.predict(features)[0])
@@ -407,23 +451,32 @@ class MatchEnsemble:
         )
         outcome_probabilities /= outcome_probabilities.sum()
 
-        auxiliary = self._auxiliary_features(
-            features,
-            expected_home,
-            expected_away,
-            float(outcome_probabilities[1]),
-            knockout=False,
-            round_code=0,
-        )
         return {
+            "features": features,
             "expected_home_goals": expected_home,
             "expected_away_goals": expected_away,
             "score_matrix": score_matrix,
             "home_probability": float(outcome_probabilities[0]),
             "draw_probability": float(outcome_probabilities[1]),
             "away_probability": float(outcome_probabilities[2]),
-            "corners": max(0, int(round(self.corners_model.predict(auxiliary)[0]))),
-            "yellow_cards": max(0, int(round(self.yellow_model.predict(auxiliary)[0]))),
+        }
+
+    def predict_match(self, team_a: str, team_b: str) -> dict[str, float]:
+        core = self.predict_core(team_a, team_b)
+        auxiliary = self._auxiliary_features(
+            core["features"],
+            core["expected_home_goals"],
+            core["expected_away_goals"],
+            core["draw_probability"],
+            knockout=False,
+            round_code=0,
+        )
+        corner_mean = float(self.corners_model.predict(auxiliary)[0])
+        yellow_mean = float(self.yellow_model.predict(auxiliary)[0])
+        return {
+            **{key: value for key, value in core.items() if key != "features"},
+            "corner_mean": max(0.1, corner_mean),
+            "yellow_mean": max(0.1, yellow_mean),
             "red_probability": float(self.red_model.predict_proba(auxiliary)[0, 1]),
         }
 
