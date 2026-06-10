@@ -55,3 +55,23 @@ jupyter lab
 
 **Contact:**
 For questions or collaboration, open an issue or contact the repo owner.
+
+**Final Submission Pipeline:**
+
+```bash
+# Refresh official Elo ratings and FIFA squad lists
+python refresh_external_data.py
+
+# Retrain, run 50,000 tournament simulations, and regenerate the notebook
+python build_submission.py
+```
+
+Optional current-data files are stored under `data/`:
+
+- `market_odds_2026.csv`: decimal or American home/draw/away odds.
+- `international_match_stats_2026.csv`: national-team corner and card estimates.
+- `injuries_2026.csv`: confirmed absences with numeric impact values.
+- `referee_assignments_2026.csv`: match officials and historical card rates.
+
+Empty optional files have no effect. Populated rows are validated and blended
+automatically. Generated backtests are written to `comp-notebook/`.

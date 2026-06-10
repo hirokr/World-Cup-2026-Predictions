@@ -353,6 +353,10 @@ class MatchEnsemble:
     importance_function: object
     poisson_model: object
     current_elo: dict[str, float]
+    market_probabilities: dict[
+        tuple[str, str], tuple[float, float, float]
+    ] = field(default_factory=dict)
+    market_weight: float = 0.35
     gradient_weight: float = 0.10
     outcome_weight: float = 0.20
     states: dict[str, TeamState] = field(default_factory=dict)
@@ -449,6 +453,17 @@ class MatchEnsemble:
             (1.0 - self.outcome_weight) * score_probabilities
             + self.outcome_weight * classifier_probabilities
         )
+        market = self.market_probabilities.get(
+            (
+                self.canonical_function(team_a),
+                self.canonical_function(team_b),
+            )
+        )
+        if market is not None:
+            outcome_probabilities = (
+                (1.0 - self.market_weight) * outcome_probabilities
+                + self.market_weight * np.asarray(market)
+            )
         outcome_probabilities /= outcome_probabilities.sum()
 
         return {
@@ -622,6 +637,7 @@ class MatchEnsemble:
                     "knockout": 0.0,
                     "round_code": 0.0,
                     "target": match.HC + match.AC,
+                    "date": match.date,
                 }
             )
             _update_state(home_state, match.FTHG, match.FTAG)
@@ -687,5 +703,108 @@ class MatchEnsemble:
                 "yellow_cards": merged["yellow_cards"].astype(float),
                 "has_red_card": merged["has_red_card"].astype(int),
                 "penalty_shootout": merged["penalty_shootout"].astype(int),
+                "date": merged["date"],
             }
         )
+
+
+def auxiliary_backtest(model: MatchEnsemble, root: Path) -> pd.DataFrame:
+    records = []
+    corner_data = model._corner_training_data(root)
+    corner_train = corner_data[corner_data["date"] < "2023-07-01"]
+    corner_test = corner_data[corner_data["date"] >= "2023-07-01"]
+    corner_model = HistGradientBoostingRegressor(
+        loss="poisson",
+        learning_rate=0.05,
+        max_iter=220,
+        max_leaf_nodes=12,
+        min_samples_leaf=45,
+        l2_regularization=2.0,
+        random_state=20260610,
+    )
+    corner_model.fit(corner_train[AUXILIARY_FEATURES], corner_train["target"])
+    corner_predictions = np.rint(
+        corner_model.predict(corner_test[AUXILIARY_FEATURES])
+    ).astype(int)
+    corner_actual = corner_test["target"].to_numpy()
+    corner_points = np.where(
+        corner_predictions == corner_actual,
+        10,
+        np.where(abs(corner_predictions - corner_actual) <= 2, 5, 0),
+    )
+    records.append(
+        {
+            "target": "corners",
+            "test_matches": len(corner_test),
+            "mean_competition_points": float(corner_points.mean()),
+            "accuracy": float((corner_predictions == corner_actual).mean()),
+        }
+    )
+
+    international_matches = (
+        pd.read_csv(root / "data/results.csv", parse_dates=["date"])
+        .dropna(subset=["home_score", "away_score"])
+        .query("date >= '2006-01-01'")
+        .copy()
+    )
+    international_matches["home_team"] = international_matches["home_team"].map(
+        model.canonical_function
+    )
+    international_matches["away_team"] = international_matches["away_team"].map(
+        model.canonical_function
+    )
+    international_rows, _ = build_rolling_features(
+        international_matches, model.importance_function
+    )
+    events = model._world_cup_event_training(root, international_rows)
+    event_train = events[events["date"] < "2018-01-01"]
+    event_test = events[events["date"] >= "2018-01-01"]
+
+    yellow_model = HistGradientBoostingRegressor(
+        loss="poisson",
+        learning_rate=0.045,
+        max_iter=180,
+        max_leaf_nodes=10,
+        min_samples_leaf=18,
+        l2_regularization=2.5,
+        random_state=20260610,
+    )
+    yellow_model.fit(
+        event_train[AUXILIARY_FEATURES], event_train["yellow_cards"]
+    )
+    yellow_predictions = np.rint(
+        yellow_model.predict(event_test[AUXILIARY_FEATURES])
+    ).astype(int)
+    yellow_actual = event_test["yellow_cards"].to_numpy()
+    yellow_points = np.where(
+        yellow_predictions == yellow_actual,
+        10,
+        np.where(abs(yellow_predictions - yellow_actual) <= 1, 5, 0),
+    )
+    records.append(
+        {
+            "target": "yellow_cards",
+            "test_matches": len(event_test),
+            "mean_competition_points": float(yellow_points.mean()),
+            "accuracy": float((yellow_predictions == yellow_actual).mean()),
+        }
+    )
+
+    for target, subset in (
+        ("red_cards", event_test),
+        ("penalties", event_test[event_test["knockout"] == 1]),
+    ):
+        column = "has_red_card" if target == "red_cards" else "penalty_shootout"
+        probability = event_train[column].mean()
+        prediction = int(probability >= 0.5)
+        actual = subset[column].astype(int).to_numpy()
+        points = 5 * (actual == prediction)
+        records.append(
+            {
+                "target": target,
+                "test_matches": len(subset),
+                "mean_competition_points": float(points.mean()),
+                "accuracy": float((actual == prediction).mean()),
+            }
+        )
+    return pd.DataFrame(records)

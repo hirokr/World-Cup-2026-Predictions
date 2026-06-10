@@ -15,7 +15,13 @@ from sklearn.linear_model import PoissonRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from ensemble_models import MatchEnsemble, backtest_goal_ensemble
+from ensemble_models import MatchEnsemble, auxiliary_backtest, backtest_goal_ensemble
+from external_features import (
+    MarketOdds,
+    build_squad_strength,
+    load_team_match_overrides,
+    parse_official_squads,
+)
 
 ROOT = Path(__file__).resolve().parent
 COMP_DIR = ROOT / "comp-notebook"
@@ -36,9 +42,14 @@ QUALIFIED_TEAMS = {
 MODEL_NAME = {
     "USA": "United States",
     "Côte d'Ivoire": "Ivory Coast",
+    "Côte D'Ivoire": "Ivory Coast",
     "Cabo Verde": "Cape Verde",
     "Czechia": "Czech Republic",
     "Türkiye": "Turkey",
+    "Bosnia And Herzegovina": "Bosnia and Herzegovina",
+    "Congo DR": "DR Congo",
+    "IR Iran": "Iran",
+    "Korea Republic": "South Korea",
 }
 
 ELO_CODE = {
@@ -459,6 +470,9 @@ def prediction_for_match(
     team_b: str,
     knockout: bool = False,
     required_winner: str | None = None,
+    match_id: int | None = None,
+    match_stat_overrides: pd.DataFrame | None = None,
+    referee_assignments: pd.DataFrame | None = None,
 ) -> dict:
     ensemble_prediction = model.predict_match(team_a, team_b)
     lh = ensemble_prediction["expected_home_goals"]
@@ -467,22 +481,63 @@ def prediction_for_match(
     if knockout:
         matrix = knockout_score_matrix(matrix, lh, la)
     optimized_score = expected_points_score(matrix, required_winner)
+    corners = expected_points_count(
+        ensemble_prediction["corner_mean"], 10, 5, 2, 24
+    )
+    yellow_cards = expected_points_count(
+        ensemble_prediction["yellow_mean"], 10, 5, 1, 14
+    )
+    red_probability = ensemble_prediction["red_probability"]
+
+    if match_stat_overrides is not None and not match_stat_overrides.empty:
+        matching = match_stat_overrides[
+            (match_stat_overrides["home_team"] == canonical(team_a))
+            & (match_stat_overrides["away_team"] == canonical(team_b))
+        ]
+        if len(matching) == 1:
+            override = matching.iloc[0]
+            if {"home_corners", "away_corners"} <= set(matching.columns):
+                corner_total = override["home_corners"] + override["away_corners"]
+                if pd.notna(corner_total):
+                    corners = int(round(0.65 * corners + 0.35 * corner_total))
+            if {"home_yellow", "away_yellow"} <= set(matching.columns):
+                yellow_total = override["home_yellow"] + override["away_yellow"]
+                if pd.notna(yellow_total):
+                    yellow_cards = int(round(0.65 * yellow_cards + 0.35 * yellow_total))
+
+    if (
+        match_id is not None
+        and referee_assignments is not None
+        and not referee_assignments.empty
+    ):
+        matching = referee_assignments[referee_assignments["match_id"] == match_id]
+        if len(matching) == 1:
+            referee = matching.iloc[0]
+            if pd.notna(referee.get("career_yellow_per_match")):
+                yellow_cards = int(
+                    round(
+                        0.7 * yellow_cards
+                        + 0.3 * float(referee["career_yellow_per_match"])
+                    )
+                )
+            if pd.notna(referee.get("career_red_per_match")):
+                red_probability = (
+                    0.7 * red_probability
+                    + 0.3 * min(1.0, float(referee["career_red_per_match"]))
+                )
+
     return {
         "predicted_home_goals": int(optimized_score[0]),
         "predicted_away_goals": int(optimized_score[1]),
-        "corners": expected_points_count(
-            ensemble_prediction["corner_mean"], 10, 5, 2, 24
-        ),
-        "yellow_cards": expected_points_count(
-            ensemble_prediction["yellow_mean"], 10, 5, 1, 14
-        ),
-        "red_cards": int(ensemble_prediction["red_probability"] >= 0.5),
+        "corners": corners,
+        "yellow_cards": yellow_cards,
+        "red_cards": int(red_probability >= 0.5),
         "home_win_probability": ensemble_prediction["home_probability"],
         "draw_probability": ensemble_prediction["draw_probability"],
         "away_win_probability": ensemble_prediction["away_probability"],
         "lambda_home": lh,
         "lambda_away": la,
-        "red_probability": ensemble_prediction["red_probability"],
+        "red_probability": red_probability,
     }
 
 
@@ -693,9 +748,11 @@ def optimize_full_bracket(
     fixtures: pd.DataFrame,
     knockout: pd.DataFrame,
     model: MatchEnsemble,
-    rng: np.random.Generator,
-    simulations: int = 5000,
+    simulations: int = 50000,
 ) -> dict[int, dict]:
+    random_generators = [
+        np.random.default_rng(RNG_SEED + offset) for offset in range(5)
+    ]
     group_rates = {}
     for group, games in fixtures.groupby("group"):
         teams = sorted(set(games["home_team"]) | set(games["away_team"]))
@@ -714,8 +771,10 @@ def optimize_full_bracket(
         group_rates[group] = (teams, rates)
 
     prediction_cache = {}
-    scenarios = []
-    for _ in range(simulations):
+    scenario_counts = Counter()
+    scenario_examples = {}
+    for simulation_index in range(simulations):
+        simulation_rng = random_generators[simulation_index % len(random_generators)]
         group_orders = {}
         third_rankings = []
         for group, (teams, rates) in group_rates.items():
@@ -724,8 +783,8 @@ def optimize_full_bracket(
             goals_against = np.zeros(4, dtype=int)
             results = []
             for home_index, away_index, home_rate, away_rate in rates:
-                home_goals = int(rng.poisson(home_rate))
-                away_goals = int(rng.poisson(away_rate))
+                home_goals = int(simulation_rng.poisson(home_rate))
+                away_goals = int(simulation_rng.poisson(away_rate))
                 results.append((home_index, away_index, home_goals, away_goals))
                 goals_for[home_index] += home_goals
                 goals_against[home_index] += away_goals
@@ -788,7 +847,7 @@ def optimize_full_bracket(
             home_advance_probability = (
                 prediction["home_probability"] / non_draw_total
             )
-            home_advances = rng.random() < home_advance_probability
+            home_advances = simulation_rng.random() < home_advance_probability
             winner = home if home_advances else away
             loser = away if home_advances else home
             match_results[int(row.match_id)] = {
@@ -797,14 +856,25 @@ def optimize_full_bracket(
                 "winner": winner,
                 "loser": loser,
             }
-        scenarios.append(match_results)
+        signature = tuple(
+            (
+                match_id,
+                result["home"],
+                result["away"],
+                result["winner"],
+            )
+            for match_id, result in sorted(match_results.items())
+        )
+        scenario_counts[signature] += 1
+        scenario_examples.setdefault(signature, match_results)
 
     pair_counts = {match_id: Counter() for match_id in range(73, 105)}
     winner_counts = {match_id: Counter() for match_id in range(73, 105)}
-    for scenario in scenarios:
+    for signature, count in scenario_counts.items():
+        scenario = scenario_examples[signature]
         for match_id, result in scenario.items():
-            pair_counts[match_id][(result["home"], result["away"])] += 1
-            winner_counts[match_id][result["winner"]] += 1
+            pair_counts[match_id][(result["home"], result["away"])] += count
+            winner_counts[match_id][result["winner"]] += count
 
     multipliers = knockout.set_index("match_id")["multiplier"].to_dict()
 
@@ -824,13 +894,45 @@ def optimize_full_bracket(
             ) / simulations
         return utility
 
-    return max(scenarios, key=scenario_utility)
+    candidate_signatures = [
+        signature for signature, _ in scenario_counts.most_common(500)
+    ]
+    return max(
+        (scenario_examples[signature] for signature in candidate_signatures),
+        key=scenario_utility,
+    )
 
 
-def build_predictions() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def build_predictions() -> tuple[
+    pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame
+]:
     results = load_results()
     fixtures, knockout = load_fixtures()
     poisson_model, trials = choose_goal_model(results)
+    current_elo = load_current_elo()
+
+    squad = parse_official_squads(
+        ROOT / "data/worldcup/squads_2026.txt", canonical
+    )
+    squad_strength = build_squad_strength(
+        squad, ROOT / "data/injuries_2026.csv", REFERENCE_DATE
+    )
+    squad.to_csv(ROOT / "data/worldcup/squads_2026.csv", index=False)
+    squad_strength.to_csv(ROOT / "data/squad_strength_2026.csv", index=False)
+    for row in squad_strength.itertuples():
+        team = canonical(row.team)
+        if team in current_elo:
+            current_elo[team] += float(row.elo_adjustment)
+
+    market_odds = MarketOdds.load(
+        ROOT / "data/market_odds_2026.csv", canonical
+    )
+    match_stat_overrides = load_team_match_overrides(
+        ROOT / "data/international_match_stats_2026.csv", canonical
+    )
+    referee_assignments = pd.read_csv(
+        ROOT / "data/referee_assignments_2026.csv"
+    )
 
     def historical_poisson(
         training_matches: pd.DataFrame, cutoff: pd.Timestamp
@@ -862,15 +964,24 @@ def build_predictions() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Da
         canonical_function=canonical,
         importance_function=tournament_weight,
         poisson_model=poisson_model,
-        current_elo=load_current_elo(),
+        current_elo=current_elo,
+        market_probabilities=market_odds.probabilities,
         gradient_weight=float(best_gradient_weight),
         outcome_weight=float(best_outcome_weight),
     )
     model.fit(results, ROOT, REFERENCE_DATE)
+    auxiliary_results = auxiliary_backtest(model, ROOT)
 
     group_rows = []
     for row in fixtures.itertuples():
-        prediction = prediction_for_match(model, row.home_team, row.away_team)
+        prediction = prediction_for_match(
+            model,
+            row.home_team,
+            row.away_team,
+            match_id=int(row.match_id),
+            match_stat_overrides=match_stat_overrides,
+            referee_assignments=referee_assignments,
+        )
         outcome = ["home", "draw", "away"][
             int(
                 np.argmax(
@@ -897,9 +1008,8 @@ def build_predictions() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Da
         )
     group_predictions = pd.DataFrame(group_rows).drop(columns=["Index"], errors="ignore")
 
-    rng = np.random.default_rng(RNG_SEED)
     optimized_scenario = optimize_full_bracket(
-        fixtures, knockout, model, rng, simulations=5000
+        fixtures, knockout, model, simulations=50000
     )
 
     match_results: dict[int, dict] = {}
@@ -916,6 +1026,9 @@ def build_predictions() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Da
             away,
             knockout=True,
             required_winner="home" if home_advance else "away",
+            match_id=int(row.match_id),
+            match_stat_overrides=match_stat_overrides,
+            referee_assignments=referee_assignments,
         )
         match_results[int(row.match_id)] = {"winner": winner, "loser": loser}
         round_code = {
@@ -953,7 +1066,13 @@ def build_predictions() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Da
     knockout_predictions = pd.DataFrame(knockout_rows).drop(
         columns=["Index"], errors="ignore"
     )
-    return group_predictions, knockout_predictions, trials, ensemble_backtest
+    return (
+        group_predictions,
+        knockout_predictions,
+        trials,
+        ensemble_backtest,
+        auxiliary_results,
+    )
 
 
 def dataframe_literal(frame: pd.DataFrame) -> str:
@@ -1004,11 +1123,15 @@ def write_notebook(
                 "are calculated without future-match leakage. Separate trained "
                 "models predict corners, yellow cards, red-card probability, and "
                 "penalty-shootout probability. "
+                "Official FIFA final squads contribute age, position, goalkeeper, "
+                "club-league quality, and optional injury features. Validated market "
+                "odds, international match-statistics, and referee override files are "
+                "blended automatically when populated. "
                 "USA, Canada, and Mexico receive a modest host-strength adjustment. "
                 "Predicted integers maximize expected competition points rather than "
                 "simply rounding model means, and knockout score distributions include "
                 "the extra-time period required by the competition rules. "
-                "Five thousand complete tournaments were simulated using FIFA's "
+                "Fifty thousand complete tournaments were simulated using FIFA's "
                 "head-to-head group tiebreakers and exact 495-row Annex C mapping. "
                 "A coherent bracket was selected to maximize expected matchup and "
                 "winner points after applying the knockout-round multipliers.\n\n"
@@ -1021,8 +1144,9 @@ def write_notebook(
                 f"Selected regularization `alpha={best['alpha']}` and a "
                 f"`{best['half_life_years']}`-year recency half-life. The historical "
                 f"mean competition score was `{best['mean_backtest_points']:.2f}` "
-                "points per match for the Poisson tuning stage. Chronological 2018 "
-                f"and 2022 backtesting selected goal blend `{best_gradient_weight:.2f}` "
+                "points per match for the Poisson tuning stage. Chronological "
+                "validation across nine major-tournament windows selected goal blend "
+                f"`{best_gradient_weight:.2f}` "
                 f"and outcome-classifier blend `{best_outcome_weight:.2f}`, improving "
                 f"mean score/outcome points from `{poisson_points:.2f}` to "
                 f"`{best_ensemble_points:.2f}` per match."
@@ -1077,11 +1201,13 @@ def main() -> None:
         knockout_predictions,
         trials,
         ensemble_backtest,
+        auxiliary_results,
     ) = build_predictions()
     group_predictions.to_csv(COMP_DIR / "group_predictions.csv", index=False)
     knockout_predictions.to_csv(COMP_DIR / "knockout_predictions.csv", index=False)
     trials.to_csv(COMP_DIR / "model_backtest.csv", index=False)
     ensemble_backtest.to_csv(COMP_DIR / "ensemble_backtest.csv", index=False)
+    auxiliary_results.to_csv(COMP_DIR / "auxiliary_backtest.csv", index=False)
     write_notebook(
         group_predictions, knockout_predictions, trials, ensemble_backtest
     )

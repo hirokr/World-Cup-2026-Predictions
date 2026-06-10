@@ -1,0 +1,5 @@
+target,test_matches,mean_competition_points,accuracy
+corners,11083,3.256338536497338,0.11531173869890823
+yellow_cards,125,3.2,0.192
+red_cards,125,4.72,0.944
+penalties,31,3.7096774193548385,0.7419354838709677
