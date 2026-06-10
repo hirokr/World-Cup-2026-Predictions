@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from io import StringIO
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +13,7 @@ from sklearn.linear_model import PoissonRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+from ensemble_models import MatchEnsemble, backtest_goal_ensemble
 
 ROOT = Path(__file__).resolve().parent
 COMP_DIR = ROOT / "comp-notebook"
@@ -365,69 +365,30 @@ def choose_goal_model(results: pd.DataFrame) -> tuple[GoalModel, pd.DataFrame]:
     return model, trials_df
 
 
-def card_priors() -> tuple[float, dict[str, float]]:
-    bookings = pd.read_csv(ROOT / "data/worldcup/data-csv/bookings.csv")
-    recent = bookings[
-        bookings["tournament_name"].str.match(r"20(10|14|18|22) FIFA Men's World Cup")
-    ].copy()
-    match_totals = recent.groupby("match_id")["yellow_card"].sum()
-    global_median = float(match_totals.median())
-    team_match = recent.groupby(["team_name", "match_id"])["yellow_card"].sum()
-    team_mean = team_match.groupby("team_name").mean()
-    shrunk = ((team_mean * team_match.groupby("team_name").size()) + global_median * 6) / (
-        team_match.groupby("team_name").size() + 6
-    )
-    return global_median, shrunk.to_dict()
-
-
-def auxiliary_predictions(
-    team_a: str,
-    team_b: str,
-    lambda_a: float,
-    lambda_b: float,
-    yellow_base: float,
-    yellow_team: dict[str, float],
-) -> tuple[int, int, int]:
-    expected_total = lambda_a + lambda_b
-    corners = int(np.clip(round(9.7 + 0.35 * (expected_total - 2.6)), 7, 13))
-    ya = yellow_team.get(canonical(team_a), yellow_base / 2)
-    yb = yellow_team.get(canonical(team_b), yellow_base / 2)
-    yellow = int(np.clip(round(0.55 * (ya + yb) + 0.45 * yellow_base), 2, 7))
-    # Zero is the modal result by a wide margin in both recent World Cups and club data.
-    red = 0
-    return corners, yellow, red
-
-
-def prediction_for_match(
-    model: GoalModel,
-    team_a: str,
-    team_b: str,
-    yellow_base: float,
-    yellow_team: dict[str, float],
-) -> dict:
-    lh, la = model.expected_goals(team_a, team_b)
-    matrix, ph, pd_, pa = score_probabilities(lh, la)
+def prediction_for_match(model: MatchEnsemble, team_a: str, team_b: str) -> dict:
+    ensemble_prediction = model.predict_match(team_a, team_b)
+    lh = ensemble_prediction["expected_home_goals"]
+    la = ensemble_prediction["expected_away_goals"]
+    matrix = ensemble_prediction["score_matrix"]
     modal = np.unravel_index(np.argmax(matrix), matrix.shape)
-    corners, yellow, red = auxiliary_predictions(
-        team_a, team_b, lh, la, yellow_base, yellow_team
-    )
     return {
         "predicted_home_goals": int(modal[0]),
         "predicted_away_goals": int(modal[1]),
-        "corners": corners,
-        "yellow_cards": yellow,
-        "red_cards": red,
-        "home_win_probability": ph,
-        "draw_probability": pd_,
-        "away_win_probability": pa,
+        "corners": ensemble_prediction["corners"],
+        "yellow_cards": ensemble_prediction["yellow_cards"],
+        "red_cards": int(ensemble_prediction["red_probability"] >= 0.5),
+        "home_win_probability": ensemble_prediction["home_probability"],
+        "draw_probability": ensemble_prediction["draw_probability"],
+        "away_win_probability": ensemble_prediction["away_probability"],
         "lambda_home": lh,
         "lambda_away": la,
+        "red_probability": ensemble_prediction["red_probability"],
     }
 
 
 def simulate_group(
     group_fixtures: pd.DataFrame,
-    model: GoalModel,
+    model: MatchEnsemble,
     rng: np.random.Generator,
     simulations: int = 30000,
 ) -> tuple[list[str], pd.DataFrame]:
@@ -443,7 +404,14 @@ def simulate_group(
 
     rates = []
     for row in group_fixtures.itertuples():
-        rates.append((*model.expected_goals(row.home_team, row.away_team), row))
+        prediction = model.predict_match(row.home_team, row.away_team)
+        rates.append(
+            (
+                prediction["expected_home_goals"],
+                prediction["expected_away_goals"],
+                row,
+            )
+        )
 
     for _ in range(simulations):
         points = np.zeros(4, dtype=int)
@@ -540,17 +508,30 @@ def resolve_slot(
     raise ValueError(f"Unknown bracket slot: {slot}")
 
 
-def build_predictions() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def build_predictions() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     results = load_results()
     fixtures, knockout = load_fixtures()
-    model, trials = choose_goal_model(results)
-    yellow_base, yellow_team = card_priors()
+    poisson_model, trials = choose_goal_model(results)
+
+    def historical_poisson(
+        training_matches: pd.DataFrame, cutoff: pd.Timestamp
+    ) -> GoalModel:
+        return GoalModel(0.003, 2.5).fit(training_matches, cutoff)
+
+    ensemble_backtest = backtest_goal_ensemble(
+        results, tournament_weight, historical_poisson
+    )
+    model = MatchEnsemble(
+        canonical_function=canonical,
+        importance_function=tournament_weight,
+        poisson_model=poisson_model,
+        current_elo=load_current_elo(),
+    )
+    model.fit(results, ROOT, REFERENCE_DATE)
 
     group_rows = []
     for row in fixtures.itertuples():
-        prediction = prediction_for_match(
-            model, row.home_team, row.away_team, yellow_base, yellow_team
-        )
+        prediction = prediction_for_match(model, row.home_team, row.away_team)
         outcome = ["home", "draw", "away"][
             int(
                 np.argmax(
@@ -606,13 +587,27 @@ def build_predictions() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         away = resolve_slot(
             row.slot_away, group_orders, match_results, third_assignment, row.match_id
         )
-        prediction = prediction_for_match(
-            model, home, away, yellow_base, yellow_team
-        )
+        prediction = prediction_for_match(model, home, away)
         home_advance = prediction["home_win_probability"] >= prediction["away_win_probability"]
         winner = home if home_advance else away
         loser = away if home_advance else home
         match_results[int(row.match_id)] = {"winner": winner, "loser": loser}
+        round_code = {
+            "Round of 32": 1,
+            "Round of 16": 2,
+            "Quarter-final": 3,
+            "Semi-final": 4,
+            "Third-place playoff": 4,
+            "Final": 5,
+        }[row.round]
+        penalty_probability = model.penalty_probability(
+            home,
+            away,
+            prediction["lambda_home"],
+            prediction["lambda_away"],
+            prediction["draw_probability"],
+            round_code,
+        )
         knockout_rows.append(
             {
                 **row._asdict(),
@@ -626,14 +621,13 @@ def build_predictions() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
                     "red_cards",
                 )},
                 "match_winner": "home" if home_advance else "away",
-                # A shootout is a low-probability event for every individual fixture.
-                "penalties": False,
+                "penalties": bool(penalty_probability >= 0.5),
             }
         )
     knockout_predictions = pd.DataFrame(knockout_rows).drop(
         columns=["Index"], errors="ignore"
     )
-    return group_predictions, knockout_predictions, trials
+    return group_predictions, knockout_predictions, trials, ensemble_backtest
 
 
 def dataframe_literal(frame: pd.DataFrame) -> str:
@@ -644,10 +638,21 @@ def write_notebook(
     group_predictions: pd.DataFrame,
     knockout_predictions: pd.DataFrame,
     trials: pd.DataFrame,
+    ensemble_backtest: pd.DataFrame,
 ) -> None:
     group_csv = dataframe_literal(group_predictions)
     knockout_csv = dataframe_literal(knockout_predictions)
     best = trials.iloc[0]
+    mean_backtest = (
+        ensemble_backtest.groupby(["gradient_weight", "outcome_weight"])[
+            "mean_total_points"
+        ]
+        .mean()
+        .sort_values(ascending=False)
+    )
+    best_gradient_weight, best_outcome_weight = mean_backtest.index[0]
+    best_ensemble_points = mean_backtest.iloc[0]
+    poisson_points = mean_backtest.loc[(0.0, 0.0)]
 
     def markdown(source: str) -> dict:
         return {"cell_type": "markdown", "metadata": {}, "source": source.splitlines(True)}
@@ -666,11 +671,13 @@ def write_notebook(
             markdown(
                 "# FIFA World Cup 2026 predictions\n\n"
                 "This submission uses completed international matches through "
-                "March 31, 2026. A regularized Poisson attack/defense model was "
-                "selected using 2018 and 2022 World Cup backtests. Match importance "
-                "and exponential time decay weight the training observations. The "
-                "goal balance is blended with the June 10, 2026 World Football Elo "
-                "ratings to stabilize current relative team strength. "
+                "March 31, 2026. It combines regularized Poisson score distributions, "
+                "gradient-boosted home/away goal models, and a gradient-boosted "
+                "win/draw/loss classifier. Match importance, rolling form, rolling "
+                "attack/defense, Elo strength, and exponential recency weighting "
+                "are calculated without future-match leakage. Separate trained "
+                "models predict corners, yellow cards, red-card probability, and "
+                "penalty-shootout probability. "
                 "Group standings were simulated 30,000 times per group and then "
                 "propagated through the official 32-match competition bracket.\n\n"
                 "The six playoff placeholders have been replaced by Bosnia and "
@@ -682,7 +689,11 @@ def write_notebook(
                 f"Selected regularization `alpha={best['alpha']}` and a "
                 f"`{best['half_life_years']}`-year recency half-life. The historical "
                 f"mean competition score was `{best['mean_backtest_points']:.2f}` "
-                "points per match for the score and outcome categories."
+                "points per match for the Poisson tuning stage. Chronological 2018 "
+                f"and 2022 backtesting selected goal blend `{best_gradient_weight:.2f}` "
+                f"and outcome-classifier blend `{best_outcome_weight:.2f}`, improving "
+                f"mean score/outcome points from `{poisson_points:.2f}` to "
+                f"`{best_ensemble_points:.2f}` per match."
             ),
             markdown("## Group stage predictions"),
             code(
@@ -725,11 +736,19 @@ def write_notebook(
 
 
 def main() -> None:
-    group_predictions, knockout_predictions, trials = build_predictions()
+    (
+        group_predictions,
+        knockout_predictions,
+        trials,
+        ensemble_backtest,
+    ) = build_predictions()
     group_predictions.to_csv(COMP_DIR / "group_predictions.csv", index=False)
     knockout_predictions.to_csv(COMP_DIR / "knockout_predictions.csv", index=False)
     trials.to_csv(COMP_DIR / "model_backtest.csv", index=False)
-    write_notebook(group_predictions, knockout_predictions, trials)
+    ensemble_backtest.to_csv(COMP_DIR / "ensemble_backtest.csv", index=False)
+    write_notebook(
+        group_predictions, knockout_predictions, trials, ensemble_backtest
+    )
     print(trials.head().to_string(index=False))
     print(
         f"\nWrote {len(group_predictions)} group and "
