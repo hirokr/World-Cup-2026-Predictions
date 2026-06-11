@@ -6,6 +6,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize_scalar
+from scipy.stats import poisson
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.linear_model import LogisticRegression
@@ -356,6 +358,7 @@ class MatchEnsemble:
     market_probabilities: dict[
         tuple[str, str], tuple[float, float, float]
     ] = field(default_factory=dict)
+    market_expected_totals: dict[tuple[str, str], float] = field(default_factory=dict)
     market_weight: float = 0.35
     gradient_weight: float = 0.10
     outcome_weight: float = 0.20
@@ -433,8 +436,46 @@ class MatchEnsemble:
         )
         expected_home = float(np.clip(expected_home, 0.15, 4.5))
         expected_away = float(np.clip(expected_away, 0.15, 4.5))
+        market_key = (
+            self.canonical_function(team_a),
+            self.canonical_function(team_b),
+        )
+        market_total = self.market_expected_totals.get(market_key)
+        if market_total is not None:
+            model_total = expected_home + expected_away
+            blended_total = 0.7 * model_total + 0.3 * market_total
+            expected_home *= blended_total / model_total
+            expected_away *= blended_total / model_total
+            market_probabilities = self.market_probabilities.get(market_key)
+            if market_probabilities is not None:
+                def market_error(home_rate: float) -> float:
+                    away_rate = max(0.05, market_total - home_rate)
+                    market_matrix = np.outer(
+                        poisson.pmf(np.arange(10), home_rate),
+                        poisson.pmf(np.arange(10), away_rate),
+                    )
+                    market_matrix /= market_matrix.sum()
+                    probabilities = np.array(
+                        [
+                            np.tril(market_matrix, -1).sum(),
+                            np.trace(market_matrix),
+                            np.triu(market_matrix, 1).sum(),
+                        ]
+                    )
+                    return float(
+                        np.square(
+                            probabilities - np.asarray(market_probabilities)
+                        ).sum()
+                    )
 
-        from scipy.stats import poisson
+                market_home = minimize_scalar(
+                    market_error,
+                    bounds=(0.05, market_total - 0.05),
+                    method="bounded",
+                ).x
+                market_away = market_total - market_home
+                expected_home = 0.6 * expected_home + 0.4 * market_home
+                expected_away = 0.6 * expected_away + 0.4 * market_away
 
         score_matrix = np.outer(
             poisson.pmf(np.arange(10), expected_home),
@@ -453,12 +494,7 @@ class MatchEnsemble:
             (1.0 - self.outcome_weight) * score_probabilities
             + self.outcome_weight * classifier_probabilities
         )
-        market = self.market_probabilities.get(
-            (
-                self.canonical_function(team_a),
-                self.canonical_function(team_b),
-            )
-        )
+        market = self.market_probabilities.get(market_key)
         if market is not None:
             outcome_probabilities = (
                 (1.0 - self.market_weight) * outcome_probabilities

@@ -1,1 +1,73 @@
-home_team,away_team,home_corners,away_corners,home_yellow,away_yellow,home_red,away_red,source,updated_at
+match_id,home_team,away_team,home_corners,away_corners,home_yellow,away_yellow,home_red,away_red,source,updated_at
+1,Mexico,South Africa,4.1450000000000005,4.1450000000000005,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767163+00:00
+2,South Korea,Czech Republic,4.405,4.405,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767253+00:00
+3,Canada,Bosnia and Herzegovina,4.475,4.475,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767286+00:00
+4,USA,Paraguay,4.85,4.85,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767312+00:00
+5,Australia,Turkey,4.5,4.5,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767338+00:00
+6,Qatar,Switzerland,4.175,4.175,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767362+00:00
+7,Brazil,Morocco,4.0175,4.0175,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767385+00:00
+8,Haiti,Scotland,5.1,5.1,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767407+00:00
+9,Germany,Curaçao,4.5725,4.5725,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767430+00:00
+10,Netherlands,Japan,4.125,4.125,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767454+00:00
+11,Côte d'Ivoire,Ecuador,4.324999999999999,4.324999999999999,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767479+00:00
+12,Sweden,Tunisia,4.8,4.8,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767502+00:00
+13,Spain,Cabo Verde,4.5725,4.5725,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767524+00:00
+14,Belgium,Egypt,5.075,5.075,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767546+00:00
+15,Saudi Arabia,Uruguay,4.1825,4.1825,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767567+00:00
+16,Iran,New Zealand,4.37,4.37,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767589+00:00
+17,Austria,Jordan,4.4,4.4,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767611+00:00
+18,France,Senegal,4.675,4.675,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767633+00:00
+19,Iraq,Norway,4.375,4.375,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767656+00:00
+20,Argentina,Algeria,4.1,4.1,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767678+00:00
+21,Portugal,DR Congo,4.0875,4.0875,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767701+00:00
+22,England,Croatia,5.075,5.075,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767722+00:00
+23,Ghana,Panama,4.324999999999999,4.324999999999999,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767744+00:00
+24,Uzbekistan,Colombia,4.0,4.0,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767765+00:00
+25,Czech Republic,South Africa,4.505000000000001,4.505000000000001,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767787+00:00
+26,Switzerland,Bosnia and Herzegovina,4.15,4.15,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767809+00:00
+27,Canada,Qatar,4.5,4.5,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767832+00:00
+28,Mexico,South Korea,4.045,4.045,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767853+00:00
+29,Turkey,Paraguay,5.1,5.1,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767875+00:00
+30,USA,Australia,4.25,4.25,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767896+00:00
+31,Scotland,Morocco,4.9175,4.9175,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767918+00:00
+32,Brazil,Haiti,4.2,4.2,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767940+00:00
+33,Tunisia,Japan,4.425,4.425,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767962+00:00
+34,Netherlands,Sweden,4.5,4.5,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.767984+00:00
+35,Germany,Côte d'Ivoire,4.9,4.9,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768006+00:00
+36,Ecuador,Curaçao,3.9974999999999996,3.9974999999999996,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768028+00:00
+37,Spain,Saudi Arabia,4.2,4.2,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768051+00:00
+38,Belgium,Iran,4.92,4.92,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768074+00:00
+39,Uruguay,Cabo Verde,4.555,4.555,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768104+00:00
+40,New Zealand,Egypt,4.525,4.525,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768128+00:00
+41,Argentina,Austria,3.75,3.75,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768151+00:00
+42,France,Iraq,4.45,4.45,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768173+00:00
+43,Norway,Senegal,4.6,4.6,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768195+00:00
+44,Jordan,Algeria,4.75,4.75,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768217+00:00
+45,Portugal,Uzbekistan,4.3,4.3,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768239+00:00
+46,England,Ghana,4.525,4.525,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768260+00:00
+47,Panama,Croatia,4.875,4.875,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768282+00:00
+48,Colombia,DR Congo,3.7875,3.7875,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768305+00:00
+49,Switzerland,Canada,4.325,4.325,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768328+00:00
+50,Bosnia and Herzegovina,Qatar,4.324999999999999,4.324999999999999,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768350+00:00
+51,Scotland,Brazil,4.55,4.55,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768372+00:00
+52,Morocco,Haiti,4.5675,4.5675,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768394+00:00
+53,Czech Republic,Mexico,4.25,4.25,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768416+00:00
+54,South Africa,South Korea,4.300000000000001,4.300000000000001,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768439+00:00
+55,Curaçao,Côte d'Ivoire,4.2725,4.2725,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768463+00:00
+56,Ecuador,Germany,4.625,4.625,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768485+00:00
+57,Japan,Sweden,4.175,4.175,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768507+00:00
+58,Tunisia,Netherlands,4.75,4.75,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768529+00:00
+59,USA,Turkey,5.5,5.5,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768551+00:00
+60,Paraguay,Australia,3.85,3.85,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768573+00:00
+61,Norway,France,4.175,4.175,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768595+00:00
+62,Senegal,Iraq,4.875,4.875,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768617+00:00
+63,Cabo Verde,Saudi Arabia,4.0725,4.0725,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768638+00:00
+64,Uruguay,Spain,4.6825,4.6825,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768660+00:00
+65,Egypt,Iran,4.095,4.095,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768682+00:00
+66,New Zealand,Belgium,5.35,5.35,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768704+00:00
+67,Panama,England,4.5,4.5,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768726+00:00
+68,Croatia,Ghana,4.9,4.9,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768750+00:00
+69,Colombia,Portugal,4.0,4.0,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768784+00:00
+70,DR Congo,Uzbekistan,4.0875,4.0875,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768806+00:00
+71,Algeria,Austria,4.2,4.2,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768828+00:00
+72,Jordan,Argentina,4.3,4.3,,,,,FootyStats World Cup last-10 national team averages,2026-06-10T10:58:59.768851+00:00

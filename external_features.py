@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import brentq
+from scipy.stats import poisson
 
 
 BIG_FIVE_COUNTRIES = {"ENG", "ESP", "GER", "ITA", "FRA"}
@@ -31,7 +34,9 @@ def normalized_market_probabilities(
     decimal = []
     for value in (home_odds, draw_odds, away_odds):
         decimal.append(
-            american_to_decimal(value) if value < 1.0 else float(value)
+            american_to_decimal(value)
+            if value <= 0 or value >= 20
+            else float(value)
         )
     inverse = 1.0 / np.asarray(decimal)
     normalized = inverse / inverse.sum()
@@ -41,11 +46,12 @@ def normalized_market_probabilities(
 @dataclass
 class MarketOdds:
     probabilities: dict[tuple[str, str], tuple[float, float, float]]
+    expected_total_goals: dict[tuple[str, str], float]
 
     @classmethod
     def load(cls, path: Path, canonical_function) -> "MarketOdds":
         if not path.exists():
-            return cls({})
+            return cls({}, {})
         odds = pd.read_csv(path)
         required = {
             "home_team",
@@ -58,6 +64,7 @@ class MarketOdds:
         if missing:
             raise ValueError(f"Market odds file is missing columns: {sorted(missing)}")
         probabilities = {}
+        expected_totals = {}
         for row in odds.itertuples():
             if pd.isna(row.home_odds) or pd.isna(row.draw_odds) or pd.isna(row.away_odds):
                 continue
@@ -70,7 +77,35 @@ class MarketOdds:
                 float(row.draw_odds),
                 float(row.away_odds),
             )
-        return cls(probabilities)
+            if all(
+                column in odds.columns
+                for column in ("total_line", "over_odds", "under_odds")
+            ):
+                total_values = (
+                    row.total_line,
+                    row.over_odds,
+                    row.under_odds,
+                )
+                if not any(pd.isna(value) for value in total_values):
+                    over_decimal = (
+                        american_to_decimal(float(row.over_odds))
+                        if float(row.over_odds) <= 0 or float(row.over_odds) >= 20
+                        else float(row.over_odds)
+                    )
+                    under_decimal = (
+                        american_to_decimal(float(row.under_odds))
+                        if float(row.under_odds) <= 0 or float(row.under_odds) >= 20
+                        else float(row.under_odds)
+                    )
+                    inverse = np.array([1 / over_decimal, 1 / under_decimal])
+                    over_probability = float(inverse[0] / inverse.sum())
+                    threshold = math.floor(float(row.total_line))
+
+                    def equation(rate: float) -> float:
+                        return 1.0 - poisson.cdf(threshold, rate) - over_probability
+
+                    expected_totals[key] = float(brentq(equation, 0.05, 8.0))
+        return cls(probabilities, expected_totals)
 
     def get(self, home_team: str, away_team: str):
         return self.probabilities.get((home_team, away_team))

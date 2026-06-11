@@ -966,6 +966,7 @@ def build_predictions() -> tuple[
         poisson_model=poisson_model,
         current_elo=current_elo,
         market_probabilities=market_odds.probabilities,
+        market_expected_totals=market_odds.expected_total_goals,
         gradient_weight=float(best_gradient_weight),
         outcome_weight=float(best_outcome_weight),
     )
